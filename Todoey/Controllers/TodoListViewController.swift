@@ -7,27 +7,26 @@
 //
 
 import UIKit
-
-struct MorphyProperty {
-    var type:MorphyTypeValue
-    var key:String
-    var value:AnyObject
-    enum MorphyTypeValue {
-        case Int,String,Double
-    }
-}
+import CoreData
 
 class TodoListViewController: UITableViewController {
 
     let identifier:String = "TodoItemCell"
-    let dataFilePath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("Items.plist")
+    var selCategory: Category? {
+        didSet{
+            loadItems()
+        }
+    }
+
+    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
     
     var itemArray = [Item]()
     
     override func viewDidLoad() {
         super.viewDidLoad()
-         loadItems()
-
+        
+        print(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask))
+        
     }
     
     
@@ -38,8 +37,7 @@ class TodoListViewController: UITableViewController {
         
         let item = itemArray[indexPath.row]
         cell.textLabel?.text = item.title
-        
-       cell.accessoryType =  item.done == true ? .checkmark : .none
+        cell.accessoryType =  item.done == true ? .checkmark : .none
 
         return cell
     }
@@ -65,9 +63,10 @@ class TodoListViewController: UITableViewController {
         
         let action = UIAlertAction(title: "add item", style: .default) { (action) in
             
-            let newItem = Item()
+            let newItem = Item(context: self.context)
             newItem.title = myTextField.text!
-            
+            newItem.done = false
+            newItem.parentCategory = self.selCategory
             self.itemArray.append(newItem)
             self.saveItems()
         }
@@ -82,28 +81,61 @@ class TodoListViewController: UITableViewController {
     }
     func saveItems() {
         
-        let encoder = PropertyListEncoder()
         
         do {
-            let data =  try encoder.encode(itemArray)
-            try data.write(to: dataFilePath!)
+            try context.save()
         }catch{
-            print("Error encoding item array \(error)")
+            print("saving error \(error)")
         }
-        self.tableView.reloadData()
+        
+        tableView.reloadData()
         
     }
-    func loadItems() {
-         if let data = try? Data(contentsOf: dataFilePath!){
-            let decoder = PropertyListDecoder()
-            do{
-            try itemArray = decoder.decode([Item].self, from: data)
-            }catch{
-                print("error decoding \(error)")
+    func loadItems(with request: NSFetchRequest<Item> = Item.fetchRequest(), predicate:NSPredicate? = nil )  {
+       
+        let categoryPredicate = NSPredicate(format: "parentCategory.name MATCHES %@", selCategory!.name!)
+        
+        if let additionalPredicate = predicate{
+            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [categoryPredicate,additionalPredicate])
+            
+        }else{
+            request.predicate = categoryPredicate
+        }
+
+        do{
+           itemArray = try context.fetch(request)
+        }catch{
+            print("error \(error)")
+        }
+        tableView.reloadData()
+
+    }
+ 
+    
+}
+  // MARK- searchbar methods
+
+extension TodoListViewController: UISearchBarDelegate{
+    
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+       
+        let request:NSFetchRequest<Item> = Item.fetchRequest()
+        
+           let predicate = NSPredicate(format: "title CONTAINS[cd] %@", searchBar.text!)
+
+            request.sortDescriptors  = [NSSortDescriptor(key: "title", ascending: true)]
+        
+            loadItems(with: request, predicate: predicate)
+    }
+    
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+            if searchBar.text?.count == 0 {
+                loadItems()
+                DispatchQueue.main.async {
+                    searchBar.resignFirstResponder()
+                }
                 
             }
-        }
-        
     }
 }
 
